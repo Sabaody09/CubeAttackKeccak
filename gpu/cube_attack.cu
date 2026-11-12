@@ -29,6 +29,9 @@
  * points with a grid-stride loop, XOR their 1600-bit outputs locally, reduce in
  * shared memory and combine blocks with atomicXor.
  *
+ * After the offline phase a [params] line reports the attack parameters of the
+ * run: mu, mu_h, lambda, lambda_h and sigma (definitions next to the printf).
+ *
  * Built-in checks (printed at start-up and at the end):
  *   - GPU cube-sum vs the C reference (src/cube.c) on 16 random small cubes;
  *   - quadruplet construction: a*b*c*d present after 2 rounds (cube_src=2 only);
@@ -516,6 +519,10 @@ int main(int argc, char **argv) {
     /* -------------------------- PREPROCESSING (GPU, harvest) ---------------- */
     int m = 0; long cubes = 0, discarded = 0, harvested = 0;
     long since_gain = 0;
+    /* Parameter bookkeeping (see the [params] line printed after the offline phase). */
+    long useful = 0;            /* harvested cubes with >= 1 non-constant superpoly     */
+    long nc_total = 0;          /* non-constant superpolys over all harvested cubes     */
+    long sigma = 0;             /* non-constant superpolys collected up to the last rank gain */
 
     double t0 = now_sec();
     while (m < rank_target && cubes < max_cubes && now_sec() - t0 < max_sec) {
@@ -540,7 +547,7 @@ int main(int argc, char **argv) {
             for (int j = 0; j < klen; j++)
                 if (((states[(size_t)(j + 1) * 25 + L] ^ s0) >> z) & 1ULL) bv_setbit(&v, j);
             if (bv_iszero(&v)) continue;
-            nc_cube++;                                   /* non-constant superpoly */
+            nc_cube++; nc_total++;                       /* non-constant superpoly */
             if (m >= klen) continue;
             BV rr = v;
             for (int i = 0; i < m; i++) if (bv_testbit(&rr, pivotidx[i])) bv_xor(&rr, &basis[i]);
@@ -549,7 +556,9 @@ int main(int argc, char **argv) {
             coefs[m] = v; cconst[m] = (uint8_t)((s0 >> z) & 1ULL); outbits[m] = b;
             memcpy(cube_store[m], cube_idx, sizeof(int) * (size_t)d);
             m++; gained++;
+            sigma = nc_total;
         }
+        if (nc_cube > 0) useful++;
         printf("cube %5ld (harvest %4ld): nc=%-5d rank+=%-4d rank=%d/%d  (%.1fs)\n",
                cubes, harvested, nc_cube, gained, m, klen, now_sec() - t0);
         if (gained) since_gain = 0;
@@ -560,6 +569,19 @@ int main(int argc, char **argv) {
            "(%ld quick-discarded = %.1f%%, %ld harvested) in %.3f s\n",
            rounds, d, klen, nlen, qd, cube_src, m, klen, cubes, discarded,
            cubes ? 100.0*(double)discarded/(double)cubes : 0.0, harvested, t_pre);
+    /* Attack parameters of this run:
+     *   mu       = useful / tried       lambda   = non-const superpolys per useful cube
+     *   mu_h     = harvested / tried    lambda_h = non-const superpolys per harvested cube
+     *   sigma    = non-const superpolys collected until the final rank was reached
+     * Without quick discard (qd=0) every tried cube is harvested, so mu_h = 1. */
+    printf("[params] tried=%ld discarded=%ld harvested=%ld useful=%ld | mu=%.4f mu_h=%.4f "
+           "lambda=%.2f lambda_h=%.2f sigma=%ld (rank %d)\n",
+           cubes, discarded, harvested, useful,
+           cubes ? (double)useful / (double)cubes : 0.0,
+           cubes ? (double)harvested / (double)cubes : 0.0,
+           useful ? (double)nc_total / (double)useful : 0.0,
+           harvested ? (double)nc_total / (double)harvested : 0.0,
+           sigma, m);
 
     /* ------------------------------ ONLINE (GPU) ---------------------------- */
     double t1 = now_sec();
