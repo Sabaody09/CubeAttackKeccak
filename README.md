@@ -1,6 +1,15 @@
-# CubeAttackKeccak
-GPU-parallel cube attack on round-reduced Keccak-MAC (Keccak-f[1600]) with 128- and 256-bit keys, with quick-discard filtering and pair/quadruplet cube selection. Code for the paper "Cube-like Attacks on Keccak: refined complexity analysis and practical enhancements".
+# GPU cube attack on round-reduced Keccak-MAC
 
+This repository contains the code for the paper
+
+> M. Calderini, M. Frighetto, C. Mascia. **Cube-like Attacks on Keccak: refined
+> complexity analysis and practical enhancements**.
+
+It implements a cube attack on Keccak-MAC instantiated with Keccak-f[1600] reduced
+to *r* rounds. The secret key has *c* = 128 or 256 bits. The code is parallelized on
+an NVIDIA GPU. It includes two speed-ups for the offline phase: the
+**quick-discard** filter and two **cube-selection strategies** (pairs and
+quadruplets).
 
 ## Contents
 
@@ -30,8 +39,13 @@ make                    # builds cube_attack_c128 and cube_attack_c256
 make CUDA_ARCH=sm_90    # for a different GPU generation (default: sm_80, A100)
 ```
 
-The key size is a compile-time constant (`-DKLEN_BITS=128` or `256`), so there is
-one binary per key size.
+The key size is a compile-time constant, so there is one binary per key size. Any
+multiple of 64 is supported; for example, a 512-bit key:
+
+```sh
+make keccak.o mac.o cube.o
+nvcc -O3 -arch=sm_80 -Isrc -Igpu -DKLEN_BITS=512 gpu/cube_attack.cu keccak.o mac.o cube.o -o cube_attack_c512
+```
 
 ## Usage
 
@@ -42,8 +56,8 @@ one binary per key size.
 
 | Argument      | Meaning                                                                 | Default     |
 |---------------|-------------------------------------------------------------------------|-------------|
-| `rounds`      | number of Keccak-f rounds *r*; the cube dimension is *d* = 2^r − 1      | 5           |
-| `nlen`        | number of nonce bits available as cube variables                        | 1600 − *c*  |
+| `rounds`      | number of Keccak-f rounds *r*; the cube dimension is *d* = 2^r − 1 (*k* in the paper) | 5 |
+| `nlen`        | number of public (nonce) bits available as cube variables               | 1600 − *c*  |
 | `seed`        | PRNG seed; determines the secret key and the sequence of cubes          | 20260722    |
 | `max_cubes`   | maximum number of cubes tried in the offline phase                      | 200000      |
 | `max_sec`     | wall-clock budget of the offline phase, in seconds                      | unlimited   |
@@ -74,7 +88,8 @@ The four scenarios compared in the paper correspond to:
 ./cube_attack_c256 5 1344 1 200000 1e12 1 256 100000 2
 ```
 
-Use a different `seed` for each independent trial.
+Use a different `seed` for each independent trial. The paper's parameter values are
+averages over several trials of the same configuration.
 
 ## What the attack does
 
@@ -118,14 +133,26 @@ produced (`nc`), the rank gained and the total rank. The run ends with:
 
 ```
 [preprocess/GPU] ... rank R/c from N cubes (D quick-discarded, H harvested) in T s
+[params] tried=N discarded=D harvested=H useful=U | mu=... mu_h=... lambda=... lambda_h=... sigma=... (rank R)
 [online/GPU] R equations in T s; exactness invariant: OK
 [solve] rank=R/c in T s (linear algebra)
 [timing] offline=... s | online=... s | linear-algebra=... s | total=... s
 RESULT: FULL c-bit KEY RECOVERED (GPU, f[1600]) -- matches secret [OK]
 ```
 
-The cost of the offline phase in cube-sums, which does not depend on the
-hardware, is (*c* + 1) · H + D.
+The `[params]` line gives the attack parameters defined in the paper, measured on
+this run:
+
+| Parameter  | Definition                                                                 |
+|------------|----------------------------------------------------------------------------|
+| `mu`       | μ = useful cubes / cubes tried. A cube is useful if it yields at least one non-constant superpoly |
+| `mu_h`     | μ_h = harvested cubes / cubes tried (1 without quick discard)               |
+| `lambda`   | λ = non-constant superpolys per useful cube                                 |
+| `lambda_h` | λ_h = non-constant superpolys per harvested cube                           |
+| `sigma`    | σ = non-constant superpolys collected until the final rank R was reached    |
+
+The cost of the offline phase, which does not depend on the hardware, is
+((*c* + 1) · H + D) · 2^d Keccak calls.
 
 ## Built-in correctness checks
 
