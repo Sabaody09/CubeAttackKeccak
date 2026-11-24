@@ -1,0 +1,21 @@
+# Seeds for reproducing the s = 128 tables (n_r = 3, 4, 5).
+#
+# cube_attack draws the secret key and the whole cube sequence from the C library
+# rand() seeded with the `seed` argument, so one seed fixes one trial exactly on a
+# given glibc. The paper's tables are averages over several independent trials; the
+# script tables.sh runs trial t with seed = <base seed> + t and averages.
+#
+# Reproducing the published averages (not necessarily the identical per-trial
+# counts, which also depend on the libc) uses these base seeds and trial counts:
+#
+#   n_r = 3   base seed 20261120   20 trials   (Table 8)
+#   n_r = 4   base seed 20261124   20 trials   (Table 9)
+#   n_r = 5   base seed 20261119   10 trials   (Table 10)
+#
+# Usage:
+#   bash scripts/tables.sh 3 20 20261120      # reproduce Table 8
+#   bash scripts/tables.sh 4 20 20261124      # reproduce Table 9
+#   bash scripts/tables.sh 5 10 20261119      # reproduce Table 10 (n_r=5 Base is hours)
+#
+# Any base seeds work; these are the ones used for the published runs. Avoid base
+# seeds that differ by less than the trial count (the per-trial seeds would overlap).
