@@ -1,6 +1,7 @@
-*.i
-*.ii
-*.gpu
-*.ptx
-*.cubin
-*.fatbin
+*.o
+cube_attack_s128
+cube_attack_s256
+cube_attack_s512
+keccak_kat
+halfround_test
+*.log
