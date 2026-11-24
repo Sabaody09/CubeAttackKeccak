@@ -136,9 +136,7 @@ The `[params]` line reports the paper's parameters measured on the run:
 | Parameter  | Definition                                                                 |
 |------------|----------------------------------------------------------------------------|
 | `mu` (μ)   | useful cubes / cubes tried (a cube is *useful* if it yields ≥ 1 non-constant superpoly) |
-| `mu_h`     | harvested cubes / cubes tried (= 1 without quick discard)                   |
 | `lambda` (λ) | non-constant superpolys per useful cube                                   |
-| `lambda_h` | non-constant superpolys per harvested cube                                 |
 | `sigma` (σ) | non-constant superpolys collected until the final rank was reached         |
 
 The hardware-independent offline cost is `((s + 1)·H + D)·2^k` Keccak calls, with
