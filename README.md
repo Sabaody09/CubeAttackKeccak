@@ -194,17 +194,3 @@ the `s + 1` tasks of a harvest run together (one per `blockIdx.y`). Within a tas
 the 1600-bit outputs of its points (inverting the last half-round first when
 `invhalf=1`), and the partial sums are reduced in shared memory and combined across
 blocks with `atomicXor`. Cube generation and the GF(2) solve run on the CPU.
-
-## Citation
-
-```bibtex
-@misc{CalderiniFrighettoMascia,
-  title  = {Cube-like Attacks on Keccak: refined complexity analysis and practical enhancements},
-  author = {Calderini, Marco and Frighetto, Mirko and Mascia, Carla},
-  year   = {2026}
-}
-```
-
-## License
-
-[LICENSE]
