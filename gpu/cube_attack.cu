@@ -39,7 +39,7 @@
  * shared memory and combine blocks with atomicXor.
  *
  * After the offline phase a [params] line reports the run's attack parameters:
- * mu, mu_h, lambda, lambda_h and sigma (definitions next to the printf).
+ * mu, lambda and sigma (definitions next to the printf).
  *
  * Built-in checks:
  *   - GPU cube-sum vs the C reference (src/cube.c, src/keccak.c) on 16 random
@@ -632,18 +632,15 @@ int main(int argc, char **argv) {
            "(%ld quick-discarded = %.1f%%, %ld harvested) in %.3f s\n",
            nr, d, klen, nlen, qd, cube_src, m, klen, cubes, discarded,
            cubes ? 100.0*(double)discarded/(double)cubes : 0.0, harvested, t_pre);
-    /* Attack parameters of this run:
-     *   mu       = useful / tried       lambda   = non-const superpolys per useful cube
-     *   mu_h     = harvested / tried    lambda_h = non-const superpolys per harvested cube
-     *   sigma    = non-const superpolys collected until the final rank was reached
-     * Without quick discard (qd=0) every tried cube is harvested, so mu_h = 1. */
-    printf("[params] tried=%ld discarded=%ld harvested=%ld useful=%ld | mu=%.4f mu_h=%.4f "
-           "lambda=%.2f lambda_h=%.2f sigma=%ld (rank %d)\n",
+    /* Attack parameters of this run (paper Section 3.2):
+     *   mu    = useful / tried   (useful = cube with >= 1 non-constant superpoly)
+     *   lambda = non-constant superpolys per useful cube
+     *   sigma = non-constant superpolys collected until the final rank was reached */
+    printf("[params] tried=%ld discarded=%ld harvested=%ld useful=%ld | mu=%.4f "
+           "lambda=%.2f sigma=%ld (rank %d)\n",
            cubes, discarded, harvested, useful,
            cubes ? (double)useful / (double)cubes : 0.0,
-           cubes ? (double)harvested / (double)cubes : 0.0,
            useful ? (double)nc_total / (double)useful : 0.0,
-           harvested ? (double)nc_total / (double)harvested : 0.0,
            sigma, m);
 
     /* ------------------------------ ONLINE (GPU) ---------------------------- */
