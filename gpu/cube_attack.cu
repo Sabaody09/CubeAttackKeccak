@@ -268,24 +268,32 @@ static int ref_cube_sum_invhalf(const keccak_params *P, const uint8_t *key,
     return acc & 1;
 }
 
-/* Harvest: full output-state cube-sums for key=0 and key=e_j (klen+1 tasks). */
+/* Harvest: full output-state cube-sums for key=0 and key=e_j (klen+1 tasks).
+ * If cst_cached is non-NULL it is the key=0 cube-sum already computed by the
+ * quick-discard probe: only the klen key=e_j tasks are launched and the cached
+ * key=0 sum is copied in, so a harvested cube costs klen+1 cube-sums in total
+ * (probe included), not klen+2. */
 static unsigned long long states[MAXTASK * 25];
 static void reconstruct_harvest(GpuCtx *g, const keccak_params *P, const uint8_t *base_iv,
-        const int *cube_idx, int d) {
-    int klen = P->klen, ntask = klen + 1;
+        const int *cube_idx, int d, const unsigned long long *cst_cached) {
+    int klen = P->klen;
+    int first = cst_cached ? 1 : 0;              /* task 0 (key=0) already known? */
+    int ntask = klen + 1 - first;
     static uint64_t bstates[MAXTASK * 25];
     static int posarr[MAXTASK * KF1600_DMAX];
     static int darr[MAXTASK];
     static unsigned long long totarr[MAXTASK];
     uint8_t key[S];
-    for (int task = 0; task < ntask; task++) {
+    for (int t = 0; t < ntask; t++) {
+        int task = t + first;
         memset(key, 0, klen);
         if (task > 0) key[task - 1] = 1;
-        build_base_state(P, key, base_iv, cube_idx, d, &bstates[task * 25]);
-        for (int i = 0; i < d; i++) posarr[task * KF1600_DMAX + i] = P->klen + cube_idx[i];
-        darr[task] = d; totarr[task] = 1ULL << d;
+        build_base_state(P, key, base_iv, cube_idx, d, &bstates[t * 25]);
+        for (int i = 0; i < d; i++) posarr[t * KF1600_DMAX + i] = P->klen + cube_idx[i];
+        darr[t] = d; totarr[t] = 1ULL << d;
     }
-    run_state_batch(g, bstates, posarr, darr, totarr, ntask, P->nr, states);
+    run_state_batch(g, bstates, posarr, darr, totarr, ntask, P->nr, states + (size_t)first * 25);
+    if (cst_cached) memcpy(states, cst_cached, 25 * sizeof(unsigned long long));
 }
 
 /* Quick-discard pre-check: one key=0 full-state cube-sum (1 task = 2^d evals).
@@ -295,13 +303,17 @@ static void reconstruct_harvest(GpuCtx *g, const keccak_params *P, const uint8_t
  * than a full harvest. obits is a multiple of 64 (1344 or 1280), so this checks
  * whole lanes only. */
 static int allzero_constants(GpuCtx *g, const keccak_params *P, const uint8_t *base_iv,
-        const int *cube_idx, int d, int nr, int obits) {
+        const int *cube_idx, int d, int nr, int obits, unsigned long long *cst_out) {
     uint8_t zkey[S]; memset(zkey, 0, sizeof zkey);
     uint64_t bs0[25]; build_base_state(P, zkey, base_iv, cube_idx, d, bs0);
     int pos0[KF1600_DMAX] = {0};
     for (int i = 0; i < d; i++) pos0[i] = P->klen + cube_idx[i];
     int d0 = d; unsigned long long tt0 = 1ULL << d; unsigned long long cst[25];
     run_state_batch(g, bs0, pos0, &d0, &tt0, 1, nr, cst);
+    /* Hand the key=0 cube-sum to the caller so a harvest of this cube can reuse it
+     * instead of recomputing it: a harvested cube then costs klen+1 cube-sums in
+     * total (probe included), not klen+2 -- matching the paper's cost model. */
+    if (cst_out) memcpy(cst_out, cst, 25 * sizeof(unsigned long long));
     for (int L = 0; L < obits / 64; L++) if (cst[L]) return 0;
     return 1;
 }
@@ -591,7 +603,8 @@ int main(int argc, char **argv) {
     while (m < rank_target && cubes < max_cubes && now_sec() - t0 < max_sec) {
         cubes++;
         gen_cube(cube_idx, d, klen, nlen, cube_src);
-        if (qd == 1 && allzero_constants(&g, &P, base_iv, cube_idx, d, nr, obits)) {
+        unsigned long long cst_cache[25];
+        if (qd == 1 && allzero_constants(&g, &P, base_iv, cube_idx, d, nr, obits, cst_cache)) {
             discarded++;
             if (discarded % 50 == 0)
                 printf("  ..%ld cubes tried, %ld discarded, %ld harvested, rank=%d/%d  (%.1fs)\n",
@@ -599,7 +612,8 @@ int main(int argc, char **argv) {
             continue;
         }
 
-        reconstruct_harvest(&g, &P, base_iv, cube_idx, d);
+        /* reuse the probe's key=0 cube-sum when the filter ran (cost klen+1, not klen+2) */
+        reconstruct_harvest(&g, &P, base_iv, cube_idx, d, qd == 1 ? cst_cache : NULL);
         harvested++;
 
         int gained = 0, nc_cube = 0;
